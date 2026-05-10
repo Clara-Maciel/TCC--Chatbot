@@ -1,0 +1,25 @@
+# Ambiente virtual
+.venv/
+venv/
+env/
+
+# Variáveis de ambiente (NUNCA commitar)
+.env
+.env.save
+
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Índices FAISS (gerados localmente)
+indices/
+
+# IDEs
+.vscode/
+.idea/
+.codex
+
+# macOS
+.DS_Store
