@@ -141,7 +141,7 @@ def _formatar_contexto(docs: list) -> str:
         if espaco_restante <= 100: break 
         
         source = os.path.basename((doc.metadata or {}).get("source", "documento"))
-        bloco = f"--- TRECHO {i} (Fonte: {source}) ---\n{conteudo}\n"
+        bloco = f"--- TRECHO {i} (Documento fonte: {source}) ---\n{conteudo}\n"
         
         if len(bloco) > espaco_restante:
             bloco = bloco[:espaco_restante] + "... [cortado]"
@@ -216,7 +216,8 @@ def responder(
 
         system_prompt = instrucao_sistema or PROMPT_SISTEMA_PADRAO
         user_prompt = (
-            f"INSTRUÇÃO: Responda de forma objetiva usando apenas o CONTEXTO abaixo.\n\n"
+            f"INSTRUÇÃO: Responda de forma objetiva usando apenas o CONTEXTO abaixo.\n"
+            f"Quando utilizar informações do CONTEXTO, indique claramente o documento fonte de onde o trecho foi extraído.\n\n"
             f"CONTEXTO:\n{contexto}\n\n"
             f"PERGUNTA: {pergunta}"
         )
