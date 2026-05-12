@@ -1,34 +1,43 @@
 import os
 import unicodedata
+import streamlit as st
 from dotenv import load_dotenv
 
+# --- CONFIGURAÇÃO DE CAMINHOS ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
-# Caminhos
+# Definição dos caminhos de dados
 CAMINHO_PDFS = os.path.join(BASE_DIR, "data", "pdfs")
 CAMINHO_INDICES = os.path.join(BASE_DIR, "indices")
 
-# Ingestão
+
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY") or os.getenv("GROQ_API_KEY", "")
+GROQ_MODEL = st.secrets.get("GROQ_MODEL") or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+LLM_PROVIDER = st.secrets.get("LLM_PROVIDER") or os.getenv("LLM_PROVIDER", "groq")
+
+# Configurações para OpenRouter (caso utilize como backup)
+OPENROUTER_API_KEY = st.secrets.get("OPENROUTER_API_KEY") or os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = st.secrets.get("OPENROUTER_MODEL") or os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
+
+# --- PARÂMETROS TÉCNICOS ---
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-# API OpenRouter (única API usada em todo o projeto)
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
-
-# Parâmetros de geração
-API_TIMEOUT_SECONDS = int(os.getenv("API_TIMEOUT_SECONDS", "45"))
+API_TIMEOUT_SECONDS = int(st.secrets.get("API_TIMEOUT_SECONDS") or os.getenv("API_TIMEOUT_SECONDS", "45"))
 MAX_TOKENS = 512
 TEMPERATURE = 0.1
 
-# Recuperação de documentos
+# Recuperação de documentos (RAG)
 RETRIEVAL_K = 6
 RETRIEVAL_FETCH_K = 14
 MAX_CONTEXT_CHARS = 4500
 MIN_RELEVANCE_SCORE = 4
 
+# --- PROCESSAMENTO DE TEXTO E DOMÍNIO ---
 STOPWORDS_BUSCA = {
     "a", "ao", "aos", "as", "com", "como", "da", "das", "de", "deve", "devo",
     "do", "dos", "e", "em", "na", "nas", "no", "nos", "o", "os", "ou", "para",
@@ -64,7 +73,7 @@ PROMPT_SISTEMA_PADRAO = (
     "Priorize a literalidade dos documentos em relação a interpretações genéricas."
 )
 
-
 def normalizar_texto(texto: str) -> str:
+    """Remove acentos e normaliza o texto para minúsculas."""
     texto = unicodedata.normalize("NFKD", texto)
     return "".join(c for c in texto if not unicodedata.combining(c)).lower()
