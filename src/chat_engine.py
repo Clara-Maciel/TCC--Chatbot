@@ -33,6 +33,7 @@ def _invocar_ia(
     prompt: str,
     system_prompt: str = PROMPT_SISTEMA_PADRAO,
     history: list[dict] | None = None,
+    max_history_messages: int = 10,
 ) -> str:
     """Invoca a API da Groq Cloud utilizando o padrão de requisição da OpenAI."""
     # Usa a chave que veio do config.py
@@ -47,7 +48,7 @@ def _invocar_ia(
         messages.append({"role": "system", "content": system_prompt})
     
     if history:
-        messages.extend(history[-6:])
+        messages.extend(_preparar_historico(history, max_messages=max_history_messages))
         
     messages.append({"role": "user", "content": prompt})
 
@@ -87,6 +88,50 @@ def _invocar_ia(
         return "Erro técnico ao processar sua pergunta."
 
 
+def _preparar_historico(historico: list[dict] | None, max_messages: int = 10) -> list[dict]:
+    mensagens: list[dict] = []
+    for item in historico or []:
+        role = item.get("role")
+        content = str(item.get("content", "")).strip()
+        if role in {"user", "assistant"} and content:
+            mensagens.append({"role": role, "content": content})
+    return mensagens[-max_messages:]
+
+
+def _historico_em_texto(historico: list[dict] | None, max_messages: int = 6) -> str:
+    mensagens = _preparar_historico(historico, max_messages=max_messages)
+    linhas: list[str] = []
+    nomes = {"user": "Usuário", "assistant": "Assistente"}
+    for item in mensagens:
+        content = item["content"].replace("\n", " ").strip()
+        linhas.append(f"{nomes[item['role']]}: {content}")
+    return "\n".join(linhas)
+
+
+def _contextualizar_pergunta(pergunta: str, historico: list[dict] | None) -> str:
+    historico_texto = _historico_em_texto(historico, max_messages=6)
+    if not historico_texto:
+        return pergunta
+
+    prompt = (
+        "Reescreva a pergunta atual como uma pergunta completa e independente, usando o histórico recente "
+        "apenas para resolver referências como 'isso', 'ele', 'esse prazo' ou 'os documentos'. "
+        "Preserve o sentido original, não responda à pergunta e não acrescente informações novas.\n\n"
+        f"HISTÓRICO RECENTE:\n{historico_texto}\n\n"
+        f"PERGUNTA ATUAL: {pergunta}\n\n"
+        "PERGUNTA REESCRITA:"
+    )
+    resposta = _invocar_ia(
+        prompt,
+        system_prompt="Você reescreve perguntas para busca em documentos. Responda somente com a pergunta reescrita.",
+        history=None,
+        max_history_messages=0,
+    )
+    if resposta.lower().startswith("erro") or len(resposta) < 3:
+        return pergunta
+    return resposta.strip().strip('"')
+
+
 def _tokens_relevantes(texto: str) -> list[str]:
     tokens = re.findall(r"\w+", normalizar_texto(texto))
     return [t for t in tokens if len(t) > 2 and t not in STOPWORDS_BUSCA]
@@ -116,6 +161,27 @@ def _formatar_contexto(docs: list) -> str:
         total_chars += len(bloco)
     return "\n".join(blocos)
 
+def _fontes_dos_docs(docs: list) -> list[str]:
+    fontes: list[str] = []
+    for doc in docs:
+        source = os.path.basename((doc.metadata or {}).get("source", "documento"))
+        if source and source not in fontes:
+            fontes.append(source)
+    return fontes
+
+def _remover_fontes_inline(resposta: str) -> str:
+    resposta = re.sub(r"\s*\(?Fonte:\s*[^)\n]+?\)?\s*", " ", resposta, flags=re.IGNORECASE)
+    resposta = re.sub(r"\s*\(?Fontes:\s*[^)\n]+?\)?\s*", " ", resposta, flags=re.IGNORECASE)
+    resposta = re.sub(r"[ \t]{2,}", " ", resposta)
+    resposta = re.sub(r"\n{3,}", "\n\n", resposta)
+    return resposta.strip()
+
+def _adicionar_rodape_fontes(resposta: str, fontes: list[str]) -> str:
+    resposta_limpa = _remover_fontes_inline(resposta)
+    if not fontes or resposta_limpa == RESPOSTA_FORA_ESCOPO:
+        return resposta_limpa
+    return f"{resposta_limpa}\n\n---\n**Fonte(s):** {', '.join(fontes)}"
+
 def _selecionar_docs(pergunta: str, vetordb) -> tuple[list, int]:
     docs = vetordb.similarity_search(pergunta, k=RETRIEVAL_FETCH_K)
     docs_pontuados = sorted(((doc, _pontuar_doc(pergunta, doc)) for doc in docs), key=lambda x: x[1], reverse=True)
@@ -132,14 +198,22 @@ def responder(pergunta: str, historico: list[dict] | None = None, instrucao_sist
     try:
         inicio = time.perf_counter()
         vetordb = carregar_base_conhecimento()
-        docs, score = _selecionar_docs(pergunta, vetordb)
+        pergunta_contextualizada = _contextualizar_pergunta(pergunta, historico)
+        docs, score = _selecionar_docs(pergunta_contextualizada, vetordb)
 
-        if not _pergunta_tem_termo_de_dominio(pergunta) and score < MIN_RELEVANCE_SCORE:
+        if not _pergunta_tem_termo_de_dominio(pergunta_contextualizada) and score < MIN_RELEVANCE_SCORE:
             return RESPOSTA_FORA_ESCOPO
 
         contexto = _formatar_contexto(docs)
-        user_prompt = f"CONTEXTO:\n{contexto}\n\nPERGUNTA: {pergunta}"
+        historico_texto = _historico_em_texto(historico, max_messages=6)
+        user_prompt = (
+            f"CONTEXTO:\n{contexto}\n\n"
+            f"HISTÓRICO RECENTE DA CONVERSA:\n{historico_texto or 'Sem histórico anterior.'}\n\n"
+            f"PERGUNTA ORIGINAL DO USUÁRIO: {pergunta}\n"
+            f"PERGUNTA CONTEXTUALIZADA PARA CONSULTA: {pergunta_contextualizada}"
+        )
         resposta = _invocar_ia(user_prompt, system_prompt=instrucao_sistema or PROMPT_SISTEMA_PADRAO, history=historico)
+        resposta = _adicionar_rodape_fontes(resposta, _fontes_dos_docs(docs))
         
         logger.info(f"Resposta gerada em {time.perf_counter() - inicio:.2f}s | Score do RAG: {score}")
         return resposta
