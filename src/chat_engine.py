@@ -55,8 +55,8 @@ def _invocar_ia(
     payload = {
         "model": str(GROQ_MODEL),
         "messages": messages,
-        "temperature": float(TEMPERATURE or 0.2),
-        "max_tokens": int(MAX_TOKENS or 800),
+        "temperature": float(TEMPERATURE),
+        "max_tokens": int(MAX_TOKENS),
     }
 
     headers = {
